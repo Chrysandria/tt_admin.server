@@ -12,6 +12,7 @@ export interface AuthenticatedUser {
   email: string;
   nom: string;
   profil: string;
+  type: string;
 }
 
 @Injectable()
@@ -39,6 +40,7 @@ export class AuthService {
         email: true,
         nom: true,
         profil: true,
+        type: true,
         password: true,
       },
     });
@@ -55,10 +57,16 @@ export class AuthService {
       email: user.email,
       nom: user.nom,
       profil: user.profil,
+      type: user.type,
     };
     const expiresIn = loginDto.stayConnected ? '30d' : '1h';
     const accessToken = await this.jwtService.signAsync(
-      { sub: user.id, email: user.email, profil: user.profil },
+      {
+        sub: user.id,
+        email: user.email,
+        profil: user.profil,
+        type: user.type,
+      },
       { expiresIn },
     );
 
@@ -72,7 +80,13 @@ export class AuthService {
   async validateUser(userId: string): Promise<AuthenticatedUser | null> {
     return this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { id: true, email: true, nom: true, profil: true },
+      select: {
+        id: true,
+        email: true,
+        nom: true,
+        profil: true,
+        type: true,
+      },
     });
   }
 

@@ -12,7 +12,7 @@ import { UpdateProductDto } from './dto/update-product.dto.js';
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(createProductDto: CreateProductDto) {
+  async create(createProductDto: CreateProductDto, imageUrl: string | null = null) {
     this.validateQuantity(createProductDto.initial, 'initial');
     if (
       typeof createProductDto.nom !== 'string' ||
@@ -29,6 +29,7 @@ export class ProductsService {
         id: randomUUID(),
         nom: createProductDto.nom,
         prix: createProductDto.prix ?? '',
+        imageUrl,
         initial: createProductDto.initial,
         available: createProductDto.initial,
       },

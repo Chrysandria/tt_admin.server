@@ -62,8 +62,11 @@ $ npm run test:cov
 Configure `DATABASE_URL`, generate the Prisma Client with `npx prisma generate`,
 and apply database migrations with `npx prisma migrate deploy`.
 
-Set `JWT_SECRET` and `CSRF_SECRET` to independent, randomly generated secrets
-of at least 32 bytes before starting the server. The browser origin allowlist is
+The server loads `server/.env` automatically. Copy `.env.example` to `.env`,
+then configure `DATABASE_URL` and generate independent secrets of at least
+32 bytes for `JWT_SECRET` and `CSRF_SECRET` (for example, run
+`openssl rand -hex 32` separately for each value). Never use the same secret
+for both settings or commit `.env`. The browser origin allowlist is
 currently limited to requests carrying an `Origin` of `http://localhost:3000`
 or `http://127.0.0.1:3000`; requests without an allowed `Origin` are rejected.
 
@@ -95,8 +98,39 @@ or single-record reads.
   available stock. Canceling or soft-deleting a reserved order restores it.
   Order/stock changes are performed transactionally, and an order cannot
   reserve more than the available quantity.
-- `POST /users` accepts `email`, `nom`, `profil`, and `password`. Passwords are
-  stored as scrypt hashes and are never included in API responses.
+- `POST /users` accepts an `email` and a required `type` (`admin` or `user`);
+  the API creates the selected account type, generates a temporary password,
+  and emails it to the new user. Passwords are stored as scrypt hashes and
+  are never included in API responses. All `/users` routes require an
+  authenticated account with `type: "admin"`; other
+  authenticated users receive `403 Forbidden`. The profile value is a role and
+  is not unique, so multiple accounts can share the same profile.
+
+Administrators create an account by submitting its email address and type to
+`POST /users`. The API generates a one-time random password and sends it to
+that address. Gmail SMTP uses `smtp.gmail.com`, port `465`, and TLS. Set
+`SMTP_USER` to the sending Gmail address and `SMTP_PASSWORD` to a Google
+App Password (not the regular Gmail password). A Google App Password requires
+2-Step Verification on the Google account. `SMTP_FROM` is optional and defaults
+to a Tiako dia Tiako sender name using `SMTP_USER`; if set, its address must be
+the authenticated Gmail address or an authorized Gmail alias. Keep these
+credentials only in the ignored `.env`. A new account is removed if Gmail
+rejects the invitation email.
+
+Product images are uploaded as `multipart/form-data` in the `image` field to
+`POST /products` or `PATCH /products/:id`. JPEG, PNG, and WebP files up to 5 MB
+are stored under `server/uploads/products`; only the relative `imageUrl` is
+stored in PostgreSQL (mapped to the `image_url` column). The server exposes
+those files under `/uploads/products/`.
+
+User accounts have a `type` column (`admin` or `user`). Apply pending schema
+changes with `npx prisma migrate deploy`; existing accounts are migrated from
+their current `profil` value.
+
+To create or refresh the local test administrator, set `SEED_ADMIN_EMAIL` and
+`SEED_ADMIN_PASSWORD` in the ignored `server/.env`, apply migrations and
+generate the Prisma client, then run `npm run db:seed:admin`. The seeder refuses
+to run when `NODE_ENV=production`.
 
 ## Deployment
 

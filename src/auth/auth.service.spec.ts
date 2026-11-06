@@ -35,7 +35,8 @@ describe('AuthService', () => {
       id: 'user-1',
       email: 'user@example.com',
       nom: 'User',
-      profil: 'manager',
+      profil: 'user',
+      type: 'user',
       password: `scrypt$${salt}$${passwordHash}`,
     });
     jwtService.signAsync.mockResolvedValue('signed-token');
@@ -46,7 +47,12 @@ describe('AuthService', () => {
     });
 
     expect(jwtService.signAsync).toHaveBeenCalledWith(
-      { sub: 'user-1', email: 'user@example.com', profil: 'manager' },
+      {
+        sub: 'user-1',
+        email: 'user@example.com',
+        profil: 'user',
+        type: 'user',
+      },
       { expiresIn: '1h' },
     );
     expect(result).toEqual({
@@ -55,7 +61,8 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'user@example.com',
         nom: 'User',
-        profil: 'manager',
+        profil: 'user',
+        type: 'user',
       },
       stayConnected: false,
     });
@@ -68,7 +75,8 @@ describe('AuthService', () => {
       id: 'user-1',
       email: 'user@example.com',
       nom: 'User',
-      profil: 'manager',
+      profil: 'user',
+      type: 'user',
       password: `scrypt$${salt}$${passwordHash}`,
     });
     jwtService.signAsync.mockResolvedValue('signed-token');

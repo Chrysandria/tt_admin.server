@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
+import { AdminGuard } from './admin.guard.js';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -27,5 +29,11 @@ describe('UsersController', () => {
 
   it('should be defined', () => {
     expect(controller).toBeDefined();
+  });
+
+  it('protects user account management with the admin guard', () => {
+    expect(Reflect.getMetadata(GUARDS_METADATA, UsersController)).toContain(
+      AdminGuard,
+    );
   });
 });

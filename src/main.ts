@@ -1,9 +1,12 @@
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { CorsOptions } from '@nestjs/common/internal';
 import { doubleCsrf } from 'csrf-csrf';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import express from 'express';
+import { resolve } from 'node:path';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import type { NextFunction, Request, Response } from 'express';
 
@@ -18,6 +21,14 @@ function getCsrfSecret() {
 async function bootstrap() {
   const csrfSecret = getCsrfSecret();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.use(
+    '/uploads',
+    express.static(resolve(process.cwd(), 'uploads'), {
+      dotfiles: 'deny',
+      index: false,
+      maxAge: '1d',
+    }),
+  );
 
   const allowedOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
 

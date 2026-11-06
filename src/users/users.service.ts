@@ -3,9 +3,12 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { randomBytes, scrypt } from 'node:crypto';
 import { Prisma } from '../generated/prisma/client.js';
+import type { UserType } from '../generated/prisma/client.js';
+import { MailService } from '../mail/mail.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
@@ -16,6 +19,7 @@ const USER_SELECT = {
   email: true,
   nom: true,
   profil: true,
+  type: true,
   createdAt: true,
   updatedAt: true,
   deletedAt: true,
@@ -34,40 +38,64 @@ function hashPassword(password: string): Promise<string> {
   });
 }
 
+function parseUserType(value: unknown): UserType {
+  if (value === 'admin' || value === 'user') return value;
+  throw new BadRequestException('type must be admin or user');
+}
+
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mailService: MailService,
+  ) {}
 
   async create(createUserDto: CreateUserDto): Promise<User> {
     if (
+      !createUserDto ||
       typeof createUserDto.email !== 'string' ||
-      !createUserDto.email.trim() ||
-      typeof createUserDto.nom !== 'string' ||
-      !createUserDto.nom.trim() ||
-      typeof createUserDto.profil !== 'string' ||
-      !createUserDto.profil.trim() ||
-      typeof createUserDto.password !== 'string' ||
-      !createUserDto.password
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(createUserDto.email.trim())
     ) {
-      throw new BadRequestException(
-        'email, nom, profil and password are required',
-      );
+      throw new BadRequestException('A valid email address is required');
     }
 
+    const userType = parseUserType(createUserDto.type);
+    const email = createUserDto.email.trim().toLowerCase();
+    const name = this.getNameFromEmail(email);
+    const temporaryPassword = randomBytes(24).toString('base64url');
+    let user: User;
     try {
-      return await this.prisma.user.create({
+      user = await this.prisma.user.create({
         data: {
           id: randomBytes(16).toString('hex'),
-          email: createUserDto.email,
-          nom: createUserDto.nom,
-          profil: createUserDto.profil,
-          password: await hashPassword(createUserDto.password),
+          email,
+          nom: name,
+          profil: userType,
+          type: userType,
+          password: await hashPassword(temporaryPassword),
         },
         select: USER_SELECT,
       });
     } catch (error) {
       this.handlePrismaError(error);
     }
+
+    try {
+      await this.mailService.sendInitialPassword(
+        email,
+        name,
+        temporaryPassword,
+        userType,
+      );
+    } catch (error) {
+      await this.prisma.user.deleteMany({ where: { id: user.id } });
+      if (error instanceof ServiceUnavailableException) throw error;
+      throw new ServiceUnavailableException(
+        'Le compte n’a pas pu être créé car son courriel de bienvenue n’a pas été envoyé.',
+      );
+    }
+
+    return user;
   }
 
   findAll(): Promise<User[]> {
@@ -104,10 +132,14 @@ export class UsersService {
     }
     if (
       updateUserDto.profil !== undefined &&
-      (typeof updateUserDto.profil !== 'string' || !updateUserDto.profil.trim())
+      updateUserDto.type !== undefined &&
+      updateUserDto.profil !== updateUserDto.type
     ) {
-      throw new BadRequestException('profil cannot be empty');
+      throw new BadRequestException('profil and type must match');
     }
+    const accountType = updateUserDto.type ?? updateUserDto.profil;
+    const userType =
+      accountType === undefined ? undefined : parseUserType(accountType);
     if (
       updateUserDto.password !== undefined &&
       (typeof updateUserDto.password !== 'string' ||
@@ -116,12 +148,15 @@ export class UsersService {
       throw new BadRequestException('password cannot be empty');
     }
 
-    const { password, ...userData } = updateUserDto;
     const data = {
-      ...userData,
-      ...(password === undefined
+      ...(updateUserDto.email === undefined
         ? {}
-        : { password: await hashPassword(password) }),
+        : { email: updateUserDto.email }),
+      ...(updateUserDto.nom === undefined ? {} : { nom: updateUserDto.nom }),
+      ...(userType === undefined ? {} : { profil: userType, type: userType }),
+      ...(updateUserDto.password === undefined
+        ? {}
+        : { password: await hashPassword(updateUserDto.password) }),
     };
     let result: { count: number };
     try {
@@ -164,5 +199,15 @@ export class UsersService {
       throw new ConflictException('Email or profile already exists');
     }
     throw error;
+  }
+
+  private getNameFromEmail(email: string) {
+    const localPart = email.split('@')[0] ?? email;
+    const name = localPart
+      .replace(/[._+-]+/g, ' ')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase());
+    return name || email;
   }
 }

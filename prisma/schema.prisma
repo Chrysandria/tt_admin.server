@@ -18,11 +18,17 @@ enum Status {
   canceled
 }
 
+enum UserType {
+  admin
+  user
+}
+
 model User {
   id        String    @id
   email     String    @unique
   nom       String
-  profil    String    @unique
+  profil    String
+  type      UserType  @default(user)
   password  String
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -33,6 +39,7 @@ model Product {
   id        String    @id
   nom       String
   prix      String    @default("")
+  imageUrl  String?   @map("image_url")
   initial   Int
   available Int
   createdAt DateTime  @default(now())
