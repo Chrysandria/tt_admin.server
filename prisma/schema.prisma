@@ -46,16 +46,26 @@ model Product {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  orders Order[]
+  orderItems OrderItem[]
 }
 
 model Order {
   id        String    @id
-  productId String
-  product   Product   @relation(fields: [productId], references: [id])
-  quantity  Int
   status    Status    @default(reserved)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
+
+  items OrderItem[]
+}
+
+model OrderItem {
+  id        String  @id
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+
+  @@unique([orderId, productId])
 }

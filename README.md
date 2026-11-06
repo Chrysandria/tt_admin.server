@@ -93,11 +93,14 @@ or single-record reads.
 - `POST /products` accepts `nom`, `prix`, and `initial`; available stock starts
   at the initial quantity. `PATCH /products/:id` can update those fields and
   `available`.
-- `POST /orders` accepts `product_id`, `quantity`, and an optional status
-  (`reserved`, `payed`, or `canceled`). Reserved and paid orders reduce
-  available stock. Canceling or soft-deleting a reserved order restores it.
-  Order/stock changes are performed transactionally, and an order cannot
-  reserve more than the available quantity.
+- `POST /orders` accepts an `items` array of `{ product_id, quantity }` entries
+  and an optional status (`reserved`, `payed`, or `canceled`). The previous
+  single-product `product_id`/`quantity` shape remains supported.
+  `PATCH /orders/:id` accepts `items` to replace the products and quantities in an
+  existing order. Reserved and paid orders reduce available stock; canceling
+  or soft-deleting a reserved order restores it. Order/stock changes are
+  performed transactionally, and an order cannot reserve more than the
+  available quantity.
 - `POST /users` accepts an `email` and a required `type` (`admin` or `user`);
   the API creates the selected account type, generates a temporary password,
   and emails it to the new user. Passwords are stored as scrypt hashes and
