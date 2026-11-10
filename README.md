@@ -1,276 +1,74 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Tiako dia Tiako — API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API NestJS et PostgreSQL pour les produits, stocks, commandes, utilisateurs et
+l’intégration Facebook/Meta.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Installation et démarrage
 
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
+Prérequis : Node.js et PostgreSQL.
 
 ```bash
-$ npm install
+npm install
+cp .env.example .env
 ```
 
-## Compile and run the project
+Renseignez au minimum `DATABASE_URL`, `JWT_SECRET` et `CSRF_SECRET` dans `.env`.
+Créez deux secrets distincts d’au moins 32 caractères, par exemple avec
+`openssl rand -hex 32`.
+
+La migration actuelle est une migration initiale unique destinée à une base
+vide. Vérifiez la base ciblée avant de la lancer : n’effacez pas l’historique
+de migrations et ne faites pas de reset sur une base contenant des données.
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npx prisma migrate deploy
+npx prisma generate
+npm run start:dev
 ```
 
-## Run tests
+L’API écoute par défaut sur <http://localhost:5000>. Pour créer l’administrateur
+initial en développement, définissez `SEED_ADMIN_EMAIL` et
+`SEED_ADMIN_PASSWORD` dans `.env`, puis lancez :
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm run db:seed:admin
 ```
 
-## Inventory API
+## Facebook / Meta
 
-Configure `DATABASE_URL`, generate the Prisma Client with `npx prisma generate`,
-and apply database migrations with `npx prisma migrate deploy`.
-The current schema is installed by the single baseline migration in
-`prisma/migrations/20261110234500_initial_schema`. It is intended for a new,
-empty database. Do not replace migration history on a database where earlier
-migrations have already been applied; retain that database's existing migration
-history and use a separately planned baseline/upgrade procedure.
+La rubrique `/facebook` du frontend permet aux administrateurs de publier sur
+la Page et de configurer le message d’accueil. Les messages et commentaires
+peuvent être analysés par mots-clés, créer des commandes multi-produits et
+réserver le stock. Aucun paiement n’est effectué automatiquement.
 
-The server loads `server/.env` automatically. Copy `.env.example` to `.env`,
-then configure `DATABASE_URL` and generate independent secrets of at least
-32 bytes for `JWT_SECRET` and `CSRF_SECRET` (for example, run
-`openssl rand -hex 32` separately for each value). Never use the same secret
-for both settings or commit `.env`. The browser origin allowlist is
-currently limited to requests carrying an `Origin` of `http://localhost:3000`
-or `http://127.0.0.1:3000`; other browser requests are rejected. The Meta
-callback at `GET/POST /facebook/webhook` is the only no-Origin exception. POST
-requests are accepted only after validating Meta's `X-Hub-Signature-256` HMAC.
+Pour activer l’intégration :
 
-The API exposes CRUD routes for `/products`, `/orders`, and `/users`. IDs are
-generated by the server. `DELETE /:id` on each resource performs a soft delete:
-the record gets a `deletedAt` timestamp and is no longer returned by collection
-or single-record reads.
+1. Configurez une application Meta avec les produits Messenger et Webhooks, puis
+   liez-y votre Page et accordez les permissions requises par Meta.
+2. Dans Graph API Explorer, récupérez l’ID de la Page et son jeton d’accès Page.
+3. Renseignez côté serveur `FACEBOOK_APP_SECRET`, `FACEBOOK_VERIFY_TOKEN`,
+   `FACEBOOK_PAGE_ID`, `FACEBOOK_PAGE_ACCESS_TOKEN` et
+   `FACEBOOK_GRAPH_API_VERSION`.
+4. Configurez le webhook sur
+   `https://<votre-api>/facebook/webhook`, avec les champs Page `feed`,
+   `live_comments` et `messages`.
 
-- `GET /auth/csrf-token` returns a CSRF token and sets its `httpOnly` cookie.
-  Send the returned token in the `X-CSRF-Token` header for every `POST`, `PUT`,
-  `PATCH`, or `DELETE` request, including login and logout.
-- `POST /auth/login` accepts `email`, `password`, and optional boolean
-  `stayConnected`. It sets the JWT in an `httpOnly`, `SameSite=Strict` cookie.
-  Tokens expire after 1 hour by default, or 30 days when `stayConnected` is
-  true; the latter also persists the cookie for 30 days.
-- `POST /auth/logout` clears the JWT cookie. `GET /auth/me` returns the current
-  authenticated user. Frontend fetch/XHR calls must use credentials
-  (`credentials: 'include'` / `withCredentials: true`).
-- All API routes except `GET /`, `GET /auth/csrf-token`, and `POST /auth/login`
-  require a valid JWT cookie. The browser must send requests with credentials
-  enabled. User accounts must already exist; there is no public registration
-  route.
+`FACEBOOK_VERIFY_TOKEN` est une valeur secrète de votre choix, à saisir aussi
+dans la configuration du webhook Meta. Gardez tous les jetons et secrets dans
+les variables d’environnement du serveur ; ne les publiez pas et ne les mettez
+pas dans le frontend. Meta peut demander une revue de l’application et un accès
+avancé pour les utilisateurs hors des rôles de test.
 
-- `POST /products` accepts `nom`, optional `keywords`, `prix`, and `initial`;
-  available stock starts at the initial quantity. `PATCH /products/:id` can
-  update those fields and `available`.
-- `POST /orders` accepts an `items` array of `{ product_id, quantity }` entries
-  and an optional status (`reserved`, `payed`, or `canceled`). The previous
-  single-product `product_id`/`quantity` shape remains supported.
-  `PATCH /orders/:id` accepts `items` to replace the products and quantities in an
-  existing order. Reserved and paid orders reduce available stock; canceling
-  or soft-deleting a reserved order restores it. Order/stock changes are
-  performed transactionally, and an order cannot reserve more than the
-  available quantity.
-- `POST /users` accepts an `email` and a required `type` (`admin` or `user`);
-  the API creates the selected account type, generates a temporary password,
-  and emails it to the new user. Passwords are stored as scrypt hashes and
-  are never included in API responses. All `/users` routes require an
-  authenticated account with `type: "admin"`; other
-  authenticated users receive `403 Forbidden`. The profile value is a role and
-  is not unique, so multiple accounts can share the same profile.
+Les publications organiques peuvent inclure un lien `m.me` vers la conversation
+Messenger de la Page. Elles ne prennent pas en charge le bouton natif
+« Envoyer un message » via l’API utilisée.
 
-Administrators create an account by submitting its email address and type to
-`POST /users`. The API generates a one-time random password and sends it to
-that address. Gmail SMTP uses `smtp.gmail.com`, port `465`, and TLS. Set
-`SMTP_USER` to the sending Gmail address and `SMTP_PASSWORD` to a Google
-App Password (not the regular Gmail password). A Google App Password requires
-2-Step Verification on the Google account. `SMTP_FROM` is optional and defaults
-to a Tiako dia Tiako sender name using `SMTP_USER`; if set, its address must be
-the authenticated Gmail address or an authorized Gmail alias. Keep these
-credentials only in the ignored `.env`. A new account is removed if Gmail
-rejects the invitation email.
-
-Product images are uploaded as `multipart/form-data` in the `image` field to
-`POST /products` or `PATCH /products/:id`. JPEG, PNG, and WebP files up to 5 MB
-are stored under `server/uploads/products`; only the relative `imageUrl` is
-stored in PostgreSQL (mapped to the `image_url` column). The server exposes
-those files under `/uploads/products/`.
-
-## Facebook Page selling
-
-The public webhook endpoint is `GET/POST /facebook/webhook`. Configure these
-server environment variables (see `.env.example`): `FACEBOOK_APP_SECRET`,
-`FACEBOOK_VERIFY_TOKEN`, `FACEBOOK_PAGE_ID`, `FACEBOOK_PAGE_ACCESS_TOKEN`, and
-`FACEBOOK_GRAPH_API_VERSION`. The Page access token is secret and must not be
-sent to the browser or committed.
-
-On Page post and Live comments, and in Messenger, a sale request must contain
-the product name or a keyword configured on that product in the admin form.
-Enter alternate words or phrases as a comma-separated list; the product name is
-always recognized too. Matching ignores case, accents, and punctuation and
-requires whole-word/phrase matches. Quantities may be digits or French number
-words from `un` to `dix`, before or after a product phrase (for example
-`2 robe bleue et un sac raphia`). With no quantity the default is one. If a
-keyword identifies more than one product, the customer receives a clarification
-message instead of placing an order. Comments and messages without a recognized
-product receive the configured private welcome message, if one is set.
-
-A single message can identify multiple products. They are reserved together as
-one multi-item order, or none are reserved if any requested product lacks stock.
-Repeated mentions of the same product are combined into one order line. Product
-keywords and Facebook welcome-message settings are included in the baseline
-schema migration.
-
-Administrators can use the Facebook section of the SaaS to immediately publish
-a text post with an optional JPEG/PNG image (up to 8 MB), and configure the
-private welcome message sent for comments or Messenger texts that do not match
-a product (up to 2,000 characters). An empty welcome message disables only the
-general greeting; order confirmations and clarification replies remain enabled.
-The post form can append a Page-specific `https://m.me/<page-id>` link so
-customers can open a conversation directly. Organic Page posts do not support
-the native "Send Message" CTA button through the Page feed/photo publishing API.
-Publishing uses the Page photo/feed Graph API and needs the Page permissions
-described above.
-Meta's Page, messaging, comment-reply, and app-review policies still apply;
-configure and test the integration against the requirements for your app and Page.
-
-A matching request creates one `reserved` order and decrements available stock
-in the same database transaction. Re-delivered Meta events are deduplicated.
-The customer receives a private Messenger confirmation (or an availability
-message when stock is insufficient); comments are never answered publicly.
-Payment is not processed automatically: administrators must update payment
-status and handle fulfillment in the existing admin application. Facebook
-customer data is limited to the Page-scoped sender ID; it does not provide a
-verified name, phone number, shipping address, or payment details.
-
-For Meta setup, create a Meta app with the Messenger and Webhooks products,
-configure the callback URL as `https://<your-api-host>/facebook/webhook`, and
-use the exact `FACEBOOK_VERIFY_TOKEN` value as the webhook verify token. Subscribe
-the app to the Page's `feed`, `live_comments`, and `messages` webhook fields, and
-grant the app the Page permissions required by Meta for reading Page comments,
-private comment replies, Page messaging, publishing Page posts, and managing
-webhook subscriptions (commonly `pages_read_engagement`,
-`pages_manage_engagement`, `pages_messaging`, `pages_manage_posts`, and
-`pages_manage_metadata`; Meta can change the requirements).
-Generate a Page access token with those permissions and set the Page ID, token,
-app secret, and a currently supported Graph API version on the server. Test with
-a Page and app in development mode first; Meta may require business verification,
-app review, and advanced access before people outside app roles can use the
-integration. Use a publicly reachable HTTPS callback and configure production
-secrets in the hosting provider, not in source control.
-
-For existing databases, back up the database and review
-`npx prisma migrate status` before applying migrations; never run a reset on a
-database containing orders or stock.
-
-User accounts have a `type` column (`admin` or `user`). Apply the baseline
-migration with `npx prisma migrate deploy` when installing into an empty
-database.
-
-To create or refresh the local test administrator, set `SEED_ADMIN_EMAIL` and
-`SEED_ADMIN_PASSWORD` in the ignored `server/.env`, apply migrations and
-generate the Prisma client, then run `npm run db:seed:admin`. The seeder refuses
-to run when `NODE_ENV=production`.
-
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## Vérification
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run build
+npm run lint
+npm test
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Observability
-
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project:
-
-```bash
-$ npm install @nestjs/observe
-```
-
-Then follow the [setup guide](https://docs.nestjs.com/observability/overview) - it takes a single import and an app key.
-
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Pour les détails de configuration, consultez `.env.example`.
