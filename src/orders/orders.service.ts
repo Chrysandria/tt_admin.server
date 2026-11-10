@@ -17,6 +17,38 @@ type OrderItemInput = CreateOrderItemDto;
 
 const ORDER_STATUSES: OrderStatus[] = ['reserved', 'payed', 'canceled'];
 
+export interface FacebookOrderEventInput {
+  channel: 'comment' | 'messenger';
+  eventId: string;
+  senderId: string;
+  items: Array<{ productId: string; quantity: number }>;
+}
+
+export interface FacebookOrderEventResult {
+  status: string;
+  orderId: string | null;
+  replyText: string | null;
+  replySent: boolean;
+  duplicate: boolean;
+}
+
+interface FacebookOutcomeInput {
+  channel: 'comment' | 'messenger';
+  eventId: string;
+  senderId: string;
+  status: string;
+  replyText: string | null;
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'P2002'
+  );
+}
+
 @Injectable()
 export class OrdersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -60,6 +92,170 @@ export class OrdersService {
       },
       { isolationLevel: 'Serializable' },
     );
+  }
+
+  async createFacebookReservation(
+    input: FacebookOrderEventInput,
+  ): Promise<FacebookOrderEventResult> {
+    if (input.items.length === 0) {
+      throw new BadRequestException('At least one product is required');
+    }
+    const seenProductIds = new Set<string>();
+    for (const item of input.items) {
+      this.validateQuantity(item.quantity, true);
+      if (seenProductIds.has(item.productId)) {
+        throw new BadRequestException(
+          'A product can only appear once in a Facebook order',
+        );
+      }
+      seenProductIds.add(item.productId);
+    }
+
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          await tx.facebookWebhookEvent.create({
+            data: {
+              id: randomUUID(),
+              channel: input.channel,
+              eventId: input.eventId,
+              senderId: input.senderId,
+              status: 'processing',
+            },
+          });
+
+          const reserved: Array<{ productId: string; quantity: number }> = [];
+          for (const item of input.items) {
+            const reservation = await tx.product.updateMany({
+              where: {
+                id: item.productId,
+                deletedAt: null,
+                available: { gte: item.quantity },
+              },
+              data: { available: { decrement: item.quantity } },
+            });
+
+            if (reservation.count === 0) {
+              const product = await tx.product.findFirst({
+                where: { id: item.productId, deletedAt: null },
+                select: { id: true, nom: true },
+              });
+              for (const priorItem of reserved) {
+                await tx.product.updateMany({
+                  where: { id: priorItem.productId },
+                  data: { available: { increment: priorItem.quantity } },
+                });
+              }
+              const status = product ? 'out_of_stock' : 'unavailable';
+              const replyText = product
+                ? `Désolé, le stock disponible est insuffisant pour ${product.nom}. Aucune ligne de cette commande n’a été réservée.`
+                : 'Désolé, un des produits demandés n’est plus disponible. Aucune ligne de cette commande n’a été réservée.';
+            const event = await tx.facebookWebhookEvent.update({
+              where: {
+                channel_eventId: {
+                  channel: input.channel,
+                  eventId: input.eventId,
+                },
+              },
+              data: { status, replyText },
+            });
+              return {
+                status: event.status,
+                orderId: event.orderId,
+                replyText: event.replyText,
+                replySent: event.replySent,
+                duplicate: false,
+              };
+            }
+            reserved.push(item);
+          }
+
+          const order = await tx.order.create({
+            data: {
+              id: randomUUID(),
+              status: 'reserved',
+              facebookUserId: input.senderId,
+              facebookChannel: input.channel,
+              facebookEventId: `${input.channel}:${input.eventId}`,
+              items: {
+                create: input.items.map((item) => ({
+                  id: randomUUID(),
+                  productId: item.productId,
+                  quantity: item.quantity,
+                })),
+              },
+            },
+            include: { items: { include: { product: true } } },
+          });
+          if (order.items.length !== input.items.length) {
+            throw new Error('Facebook reservation did not create an order item');
+          }
+          const orderLines = order.items.map(
+            (item) => `${item.product.nom} x ${item.quantity}`,
+          );
+          const replyText = `Votre réservation est confirmée : ${orderLines.join(', ')} (commande ${order.id}).`;
+          const event = await tx.facebookWebhookEvent.update({
+            where: {
+              channel_eventId: {
+                channel: input.channel,
+                eventId: input.eventId,
+              },
+            },
+            data: {
+              status: 'reserved',
+              orderId: order.id,
+              replyText,
+            },
+          });
+
+          return {
+            status: event.status,
+            orderId: event.orderId,
+            replyText: event.replyText,
+            replySent: event.replySent,
+            duplicate: false,
+          };
+        },
+        { isolationLevel: 'Serializable' },
+      );
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      return this.findFacebookEvent(input.channel, input.eventId);
+    }
+  }
+
+  async recordFacebookOutcome(
+    input: FacebookOutcomeInput,
+  ): Promise<FacebookOrderEventResult> {
+    try {
+      const event = await this.prisma.facebookWebhookEvent.create({
+        data: {
+          id: randomUUID(),
+          channel: input.channel,
+          eventId: input.eventId,
+          senderId: input.senderId,
+          status: input.status,
+          replyText: input.replyText,
+        },
+      });
+      return {
+        status: event.status,
+        orderId: event.orderId,
+        replyText: event.replyText,
+        replySent: event.replySent,
+        duplicate: false,
+      };
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      return this.findFacebookEvent(input.channel, input.eventId);
+    }
+  }
+
+  async markFacebookReplySent(channel: 'comment' | 'messenger', eventId: string) {
+    return this.prisma.facebookWebhookEvent.update({
+      where: { channel_eventId: { channel, eventId } },
+      data: { replySent: true },
+    });
   }
 
   findAll() {
@@ -317,6 +513,27 @@ export class OrdersService {
     if (result.count === 0) {
       throw new NotFoundException(`Product ${productId} not found`);
     }
+  }
+
+  private async findFacebookEvent(
+    channel: 'comment' | 'messenger',
+    eventId: string,
+  ): Promise<FacebookOrderEventResult> {
+    const event = await this.prisma.facebookWebhookEvent.findUnique({
+      where: { channel_eventId: { channel, eventId } },
+    });
+    if (!event) {
+      throw new Error(
+        'Facebook webhook event could not be loaded after conflict',
+      );
+    }
+    return {
+      status: event.status,
+      orderId: event.orderId,
+      replyText: event.replyText,
+      replySent: event.replySent,
+      duplicate: true,
+    };
   }
 
   private validateQuantity(quantity: number | undefined, required = false) {

@@ -20,7 +20,9 @@ function getCsrfSecret() {
 
 async function bootstrap() {
   const csrfSecret = getCsrfSecret();
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
   app.use(
     '/uploads',
     express.static(resolve(process.cwd(), 'uploads'), {
@@ -48,6 +50,14 @@ async function bootstrap() {
   app.enableCors(corsOptions);
 
   app.use((request: Request, response: Response, next: NextFunction) => {
+    if (
+      request.path === '/facebook/webhook' &&
+      ['GET', 'POST'].includes(request.method)
+    ) {
+      next();
+      return;
+    }
+
     const origin = request.get('Origin');
     if (!origin || !allowedOrigins.includes(origin)) {
       response.status(403).json({ message: 'Origin not allowed' });
@@ -69,6 +79,9 @@ async function bootstrap() {
     },
     getSecret: () => csrfSecret,
     getSessionIdentifier: (request) => request.ip || 'anonymous',
+    skipCsrfProtection: (request) =>
+      request.path === '/facebook/webhook' &&
+      ['GET', 'POST'].includes(request.method),
   });
 
   app.use(doubleCsrfProtection);

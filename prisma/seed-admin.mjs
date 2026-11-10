@@ -35,16 +35,13 @@ async function seedAdmin() {
         id: randomBytes(16).toString('hex'),
         email,
         nom: 'Chryslin Andrianja',
-        profil: 'admin',
         type: 'admin',
         password: await hashPassword(password),
       },
       update: {
         nom: 'Chryslin Andrianja',
-        profil: 'admin',
         type: 'admin',
-        password: await hashPassword(password),
-        deletedAt: null,
+        password: await hashPassword(password)
       },
     });
   } finally {

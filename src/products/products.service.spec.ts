@@ -38,6 +38,36 @@ describe('ProductsService', () => {
     );
   });
 
+  it('stores trimmed, case- and accent-insensitive unique keywords', async () => {
+    prisma.product.create.mockResolvedValue({ id: 'product-1' });
+
+    await service.create({
+      nom: 'Sac naturel',
+      prix: '12.50',
+      initial: 8,
+      keywords: [' sac raphia ', 'SÁC RAPHIA', 'fait main'],
+    });
+
+    expect(prisma.product.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          keywords: ['sac raphia', 'fait main'],
+        }),
+      }),
+    );
+  });
+
+  it('rejects invalid keyword lists', async () => {
+    await expect(
+      service.create({
+        nom: 'Sac naturel',
+        prix: '12.50',
+        initial: 8,
+        keywords: Array.from({ length: 31 }, (_, index) => `mot ${index}`),
+      }),
+    ).rejects.toThrow('at most 30 entries');
+  });
+
   it('excludes soft-deleted products from the collection', async () => {
     prisma.product.findMany.mockResolvedValue([]);
 

@@ -23,11 +23,13 @@ export class ProductsService {
     if (typeof createProductDto.prix !== 'string') {
       throw new BadRequestException('Product price must be a string');
     }
+    const keywords = this.normalizeKeywords(createProductDto.keywords);
 
     return this.prisma.product.create({
       data: {
         id: randomUUID(),
         nom: createProductDto.nom,
+        keywords,
         prix: createProductDto.prix ?? '',
         imageUrl,
         initial: createProductDto.initial,
@@ -72,10 +74,31 @@ export class ProductsService {
     ) {
       throw new BadRequestException('Product price must be a string');
     }
+    const keywords =
+      updateProductDto.keywords === undefined
+        ? undefined
+        : this.normalizeKeywords(updateProductDto.keywords);
 
     const result = await this.prisma.product.updateMany({
       where: { id, deletedAt: null },
-      data: updateProductDto,
+      data: {
+        ...(updateProductDto.nom === undefined
+          ? {}
+          : { nom: updateProductDto.nom }),
+        ...(updateProductDto.prix === undefined
+          ? {}
+          : { prix: updateProductDto.prix }),
+        ...(updateProductDto.initial === undefined
+          ? {}
+          : { initial: updateProductDto.initial }),
+        ...(updateProductDto.available === undefined
+          ? {}
+          : { available: updateProductDto.available }),
+        ...(updateProductDto.imageUrl === undefined
+          ? {}
+          : { imageUrl: updateProductDto.imageUrl }),
+        ...(keywords === undefined ? {} : { keywords }),
+      },
     });
     if (result.count === 0) {
       throw new NotFoundException(`Product ${id} not found`);
@@ -99,5 +122,34 @@ export class ProductsService {
     if (!Number.isInteger(value) || value < 0) {
       throw new BadRequestException(`${field} must be a non-negative integer`);
     }
+  }
+
+  private normalizeKeywords(keywords: string[] | undefined) {
+    if (keywords === undefined) return [];
+    if (!Array.isArray(keywords) || keywords.length > 30) {
+      throw new BadRequestException(
+        'Product keywords must be a list of at most 30 entries',
+      );
+    }
+
+    const normalized = new Map<string, string>();
+    for (const keyword of keywords) {
+      if (typeof keyword !== 'string') {
+        throw new BadRequestException('Each product keyword must be text');
+      }
+      const trimmed = keyword.trim();
+      if (!trimmed) continue;
+      if (trimmed.length > 80) {
+        throw new BadRequestException(
+          'Product keywords cannot exceed 80 characters',
+        );
+      }
+      const key = trimmed
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .toLocaleLowerCase('fr-FR');
+      if (!normalized.has(key)) normalized.set(key, trimmed);
+    }
+    return [...normalized.values()];
   }
 }

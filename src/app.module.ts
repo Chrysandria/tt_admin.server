@@ -10,6 +10,7 @@ import { ThrottlerBehindProxyGuard } from './common/guards/throttler-behind-prox
 import { PrismaModule } from './prisma/prisma.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
+import { FacebookModule } from './facebook/facebook.module.js';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
     OrdersModule,
     PrismaModule,
     AuthModule,
+    FacebookModule,
   ],
   controllers: [AppController],
   providers: [

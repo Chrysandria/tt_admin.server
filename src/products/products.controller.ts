@@ -24,8 +24,15 @@ type MultipartProductFields = {
   prix?: string;
   initial?: string | number;
   available?: string | number;
+  keywords?: string | string[];
   removeImage?: string | boolean;
 };
+
+function parseKeywords(value: string | string[] | undefined) {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) return value;
+  return value.split(/[,\n;]+/);
+}
 
 function parseQuantity(value: string | number | undefined): number | undefined {
   if (typeof value === 'string') return value.trim() ? Number(value) : undefined;
@@ -56,6 +63,9 @@ export class ProductsController {
       return await this.productsService.create(
         {
           nom: fields.nom ?? '',
+          ...(fields.keywords === undefined
+            ? {}
+            : { keywords: parseKeywords(fields.keywords) }),
           prix: fields.prix ?? '',
           initial,
         },
@@ -92,6 +102,9 @@ export class ProductsController {
     const nextImageUrl = image ? await saveProductImage(image) : null;
     const updateData: UpdateProductDto = {
       ...(fields.nom === undefined ? {} : { nom: fields.nom }),
+      ...(fields.keywords === undefined
+        ? {}
+        : { keywords: parseKeywords(fields.keywords) }),
       ...(fields.prix === undefined ? {} : { prix: fields.prix }),
       ...(fields.initial === undefined
         ? {}

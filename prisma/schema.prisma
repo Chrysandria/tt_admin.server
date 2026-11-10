@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -27,7 +22,7 @@ model User {
   id        String    @id
   email     String    @unique
   nom       String
-  profil    String
+  profil    String    @default("user")
   type      UserType  @default(user)
   password  String
   createdAt DateTime  @default(now())
@@ -36,36 +31,78 @@ model User {
 }
 
 model Product {
-  id        String    @id
-  nom       String
-  prix      String    @default("")
-  imageUrl  String?   @map("image_url")
-  initial   Int
-  available Int
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  orderItems OrderItem[]
+  id           String      @id
+  session_id   String?
+  code_article String?
+  nom          String
+  keywords     String[]    @default([])
+  prix         Decimal     @db.Decimal(65, 30)
+  imageUrl     String?     @map("image_url")
+  initial      Int
+  available    Int
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+  items        OrderItem[]
 }
 
 model Order {
-  id        String    @id
-  status    Status    @default(reserved)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  items OrderItem[]
+  id              String      @id
+  session_id      String?
+  facebookUserId  String?     @map("facebook_user_id")
+  legacyProductId String?     @map("produit_id")
+  legacyQuantity  Int?        @map("quantity")
+  status          Status      @default(reserved)
+  facebookChannel String?     @map("facebook_channel")
+  facebookEventId String?     @unique @map("facebook_event_id")
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
+  items           OrderItem[]
 }
 
 model OrderItem {
   id        String  @id
   orderId   String
-  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId String
-  product   Product @relation(fields: [productId], references: [id])
   quantity  Int
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@unique([orderId, productId])
+}
+
+model FacebookWebhookEvent {
+  id        String   @id
+  channel   String
+  eventId   String
+  senderId  String?
+  status    String
+  orderId   String?
+  replyText String?
+  replySent Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([channel, eventId])
+}
+
+model FacebookPageSettings {
+  id              String   @id
+  greetingMessage String   @default("Bonjour, merci de nous avoir contactés. Nous revenons vers vous rapidement.")
+  updatedAt       DateTime @updatedAt
+}
+
+model Session {
+  id               String   @id
+  facebook_live_id String
+  title            String
+  startedAt        DateTime
+}
+
+model Client {
+  facebook_user_id String  @id
+  nom_facebook     String
+  telephone        String?
+  address          String?
 }

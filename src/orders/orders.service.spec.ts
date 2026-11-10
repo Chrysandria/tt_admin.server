@@ -9,6 +9,10 @@ describe('OrdersService', () => {
       findFirst: vi.fn(),
       updateMany: vi.fn(),
     },
+    facebookWebhookEvent: {
+      create: vi.fn(),
+      update: vi.fn(),
+    },
     order: {
       create: vi.fn(),
       findFirst: vi.fn(),
@@ -22,6 +26,10 @@ describe('OrdersService', () => {
     ),
     order: {
       findMany: vi.fn(),
+    },
+    facebookWebhookEvent: {
+      findUnique: vi.fn(),
+      update: vi.fn(),
     },
   };
 
@@ -107,6 +115,166 @@ describe('OrdersService', () => {
         }),
       }),
     );
+  });
+
+  it('creates an idempotent Facebook order and records its private reply', async () => {
+    transaction.facebookWebhookEvent.create.mockResolvedValue({
+      status: 'processing',
+    });
+    transaction.product.updateMany.mockResolvedValue({ count: 1 });
+    transaction.order.create.mockResolvedValue({
+      id: 'order-facebook',
+      items: [
+        {
+          quantity: 2,
+          product: { nom: 'Robe bleue', available: 3 },
+        },
+        {
+          quantity: 1,
+          product: { nom: 'Sac rouge', available: 4 },
+        },
+      ],
+    });
+    transaction.facebookWebhookEvent.update.mockResolvedValue({
+      status: 'reserved',
+      orderId: 'order-facebook',
+      replyText: 'Votre réservation est confirmée.',
+      replySent: false,
+    });
+
+    const result = await service.createFacebookReservation({
+      channel: 'messenger',
+      eventId: 'message-1',
+      senderId: 'sender-1',
+      items: [
+        { productId: 'product-1', quantity: 2 },
+        { productId: 'product-2', quantity: 1 },
+      ],
+    });
+
+    expect(result).toEqual({
+      status: 'reserved',
+      orderId: 'order-facebook',
+      replyText: 'Votre réservation est confirmée.',
+      replySent: false,
+      duplicate: false,
+    });
+    expect(transaction.product.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'product-1',
+          available: { gte: 2 },
+        }),
+        data: { available: { decrement: 2 } },
+      }),
+    );
+    expect(transaction.order.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          facebookUserId: 'sender-1',
+          facebookChannel: 'messenger',
+          facebookEventId: 'messenger:message-1',
+          status: 'reserved',
+          items: {
+            create: expect.arrayContaining([
+              expect.objectContaining({ productId: 'product-1', quantity: 2 }),
+              expect.objectContaining({ productId: 'product-2', quantity: 1 }),
+            ]),
+          },
+        }),
+      }),
+    );
+  });
+
+  it('records an out-of-stock Facebook event without creating an order', async () => {
+    transaction.facebookWebhookEvent.create.mockResolvedValue({
+      status: 'processing',
+    });
+    transaction.product.updateMany.mockResolvedValue({ count: 0 });
+    transaction.product.findFirst.mockResolvedValue({ id: 'product-1' });
+    transaction.facebookWebhookEvent.update.mockResolvedValue({
+      status: 'out_of_stock',
+      orderId: null,
+      replyText: 'Stock insuffisant',
+      replySent: false,
+    });
+
+    const result = await service.createFacebookReservation({
+      channel: 'comment',
+      eventId: 'comment-1',
+      senderId: 'sender-1',
+      items: [{ productId: 'product-1', quantity: 2 }],
+    });
+
+    expect(result.status).toBe('out_of_stock');
+    expect(transaction.order.create).not.toHaveBeenCalled();
+  });
+
+  it('restores earlier stock deductions when a multi-product request is incomplete', async () => {
+    transaction.facebookWebhookEvent.create.mockResolvedValue({
+      status: 'processing',
+    });
+    transaction.product.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 });
+    transaction.product.findFirst.mockResolvedValue({
+      id: 'product-2',
+      nom: 'Sac rouge',
+    });
+    transaction.facebookWebhookEvent.update.mockResolvedValue({
+      status: 'out_of_stock',
+      orderId: null,
+      replyText: 'Aucune ligne réservée',
+      replySent: false,
+    });
+
+    await service.createFacebookReservation({
+      channel: 'messenger',
+      eventId: 'message-no-stock',
+      senderId: 'sender-1',
+      items: [
+        { productId: 'product-1', quantity: 2 },
+        { productId: 'product-2', quantity: 1 },
+      ],
+    });
+
+    expect(transaction.product.updateMany).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        where: { id: 'product-1' },
+        data: { available: { increment: 2 } },
+      }),
+    );
+    expect(transaction.order.create).not.toHaveBeenCalled();
+  });
+
+  it('returns an existing result when Meta redelivers the same event', async () => {
+    transaction.facebookWebhookEvent.create.mockRejectedValue({
+      code: 'P2002',
+    });
+    prisma.facebookWebhookEvent.findUnique.mockResolvedValue({
+      status: 'reserved',
+      orderId: 'order-facebook',
+      replyText: 'Déjà réservé',
+      replySent: true,
+    });
+
+    const result = await service.createFacebookReservation({
+      channel: 'messenger',
+      eventId: 'message-1',
+      senderId: 'sender-1',
+      items: [{ productId: 'product-1', quantity: 1 }],
+    });
+
+    expect(result).toEqual({
+      status: 'reserved',
+      orderId: 'order-facebook',
+      replyText: 'Déjà réservé',
+      replySent: true,
+      duplicate: true,
+    });
+    expect(transaction.product.updateMany).not.toHaveBeenCalled();
   });
 
   it('rejects duplicate products when creating an order', async () => {
