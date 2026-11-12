@@ -59,7 +59,7 @@ describe('UsersService', () => {
     expect(mailService.sendInitialPassword).toHaveBeenCalledWith(
       'user@example.com',
       'User',
-      expect.any(String),
+      expect.stringMatching(/^[A-HJ-NP-Z2-9]{8}$/),
       'admin',
     );
     expect(user).not.toHaveProperty('password');

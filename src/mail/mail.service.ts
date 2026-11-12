@@ -18,6 +18,87 @@ function escapeHtml(value: string) {
 export class MailService {
   private readonly logger = new Logger(MailService.name);
 
+  async sendPasswordChangeOtp(
+    recipient: string,
+    name: string,
+    otp: string,
+  ): Promise<void> {
+    const host = process.env.SMTP_HOST || 'smtp.gmail.com';
+    const portValue = process.env.SMTP_PORT ?? '465';
+    const username = process.env.SMTP_USER?.trim();
+    const smtpPassword = process.env.SMTP_PASSWORD?.replace(/\s/g, '');
+    const from =
+      process.env.SMTP_FROM?.trim() ||
+      (username ? `"Tiako dia Tiako" <${username}>` : '');
+    const port = Number(portValue);
+
+    if (
+      !from ||
+      !username ||
+      !smtpPassword ||
+      !Number.isInteger(port) ||
+      port < 1 ||
+      port > 65535
+    ) {
+      throw new ServiceUnavailableException(
+        'Le service e-mail n’est pas configuré pour envoyer le code de confirmation.',
+      );
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: process.env.SMTP_SECURE
+        ? process.env.SMTP_SECURE === 'true'
+        : port === 465,
+      auth: { user: username, pass: smtpPassword },
+    });
+
+    try {
+      await transporter.sendMail({
+        from,
+        to: recipient,
+        subject: 'Code de confirmation — modification du mot de passe',
+        text: [
+          `Bonjour ${name},`,
+          '',
+          'Voici votre code de confirmation pour modifier le mot de passe de votre compte :',
+          otp,
+          '',
+          'Ce code expire dans 10 minutes et ne peut être utilisé qu’une seule fois.',
+          'Si vous n’avez pas demandé cette modification, ignorez cet e-mail.',
+          '',
+          'L’équipe Tiako dia Tiako',
+        ].join('\n'),
+        html: `
+          <div style="background:#f8f5f3;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;color:#443536">
+            <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #eee5e2;border-radius:12px;overflow:hidden">
+              <div style="background:#9e4b62;padding:24px 32px;color:#ffffff">
+                <p style="margin:0;font-size:12px;letter-spacing:2px;text-transform:uppercase">Tiako dia Tiako</p>
+                <h1 style="font-size:22px;margin:12px 0 0">Confirmez votre demande</h1>
+              </div>
+              <div style="padding:28px 32px">
+                <p style="font-size:15px;line-height:1.6;margin:0 0 18px">Bonjour ${escapeHtml(name)}, saisissez ce code dans votre espace pour confirmer le changement de mot de passe.</p>
+                <p style="background:#fbf7f6;border:1px solid #eee5e2;border-radius:8px;padding:18px;text-align:center;font-family:monospace;font-size:28px;letter-spacing:6px;margin:0">${escapeHtml(otp)}</p>
+                <p style="font-size:13px;line-height:1.6;color:#76696a;margin:18px 0 0">Ce code expire dans 10 minutes et ne peut être utilisé qu’une seule fois. Si vous n’êtes pas à l’origine de cette demande, ignorez cet e-mail.</p>
+              </div>
+            </div>
+          </div>`,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Erreur SMTP inconnue';
+      this.logger.error(
+        `Échec d’envoi du code de sécurité vers ${recipient}: ${errorMessage}`,
+      );
+      throw new ServiceUnavailableException(
+        'Le code de confirmation n’a pas pu être envoyé. Vérifiez la configuration e-mail du serveur.',
+      );
+    } finally {
+      transporter.close();
+    }
+  }
+
   async sendInitialPassword(
     recipient: string,
     name: string,

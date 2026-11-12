@@ -9,6 +9,8 @@ describe('FacebookService', () => {
   const prisma = {
     product: {
       findMany: vi.fn(),
+      findFirst: vi.fn(),
+      updateMany: vi.fn(),
     },
     facebookPageSettings: {
       upsert: vi.fn(),
@@ -32,7 +34,7 @@ describe('FacebookService', () => {
     vi.clearAllMocks();
     process.env.FACEBOOK_PAGE_ID = 'page-1';
     graph.getMessengerLink.mockReturnValue('https://m.me/page-1');
-    graph.publishPagePost.mockResolvedValue({ id: 'published-1' });
+    graph.publishPagePost.mockResolvedValue('published-1');
     prisma.product.findMany.mockResolvedValue([
       { id: 'product-1', nom: 'Robe bleue', keywords: ['robe azur'] },
       { id: 'product-2', nom: 'Sac rouge', keywords: ['sac'] },
@@ -200,6 +202,54 @@ describe('FacebookService', () => {
     );
   });
 
+  it('publishes an unpublished product with its details and records the post ID', async () => {
+    prisma.product.findFirst
+      .mockResolvedValueOnce({
+        id: 'product-1',
+        nom: 'Robe bleue',
+        description: 'Robe légère en coton',
+        prix: '25 000 Ar',
+        imageUrl: null,
+        facebookPostId: null,
+      })
+      .mockResolvedValueOnce({
+        id: 'product-1',
+        facebookPostId: null,
+      });
+    prisma.product.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.publishProduct('product-1')).resolves.toBe(
+      'published-1',
+    );
+
+    expect(graph.publishPagePost).toHaveBeenCalledWith(
+      'Nouveau produit : Robe bleue\n\nRobe légère en coton\n\nPrix : 25 000 Ar\n\nÉcrivez-nous sur Messenger : https://m.me/page-1',
+      undefined,
+    );
+    expect(prisma.product.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'product-1',
+          deletedAt: null,
+          facebookPostId: null,
+        },
+        data: expect.objectContaining({ facebookPostId: 'published-1' }),
+      }),
+    );
+  });
+
+  it('does not publish a product that already has a Facebook post', async () => {
+    prisma.product.findFirst.mockResolvedValue({
+      id: 'product-1',
+      facebookPostId: 'existing-post',
+    });
+
+    await expect(service.publishProduct('product-1')).rejects.toThrow(
+      'The product has already been published',
+    );
+    expect(graph.publishPagePost).not.toHaveBeenCalled();
+  });
+
   it('does not duplicate a Messenger link already in the post', async () => {
     await service.publishPagePost(
       'Contactez-nous : https://m.me/page-1',
@@ -241,7 +291,7 @@ describe('FacebookService', () => {
               recipient: { id: 'page-1' },
               message: {
                 mid: 'message-1',
-                text: '2 robe azur et sac',
+                text: '2 robe azur',
                 is_echo: false,
               },
             },
@@ -263,14 +313,47 @@ describe('FacebookService', () => {
       channel: 'messenger',
       eventId: 'message-1',
       senderId: 'customer-1',
-      items: [
-        { productId: 'product-1', quantity: 2 },
-        { productId: 'product-2', quantity: 1 },
-      ],
+      items: [{ productId: 'product-1', quantity: 2 }],
     });
     expect(graph.sendMessengerReply).toHaveBeenCalledWith(
       'customer-1',
       'Réservation confirmée',
+    );
+  });
+
+  it('asks customers to split requests for different products', async () => {
+    await service.handleWebhook({
+      object: 'page',
+      entry: [
+        {
+          id: 'page-1',
+          messaging: [
+            {
+              sender: { id: 'customer-1' },
+              recipient: { id: 'page-1' },
+              message: {
+                mid: 'message-multiple-products',
+                text: '2 robe azur et sac',
+                is_echo: false,
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(ordersService.createFacebookReservation).not.toHaveBeenCalled();
+    expect(ordersService.recordFacebookOutcome).toHaveBeenCalledWith({
+      channel: 'messenger',
+      eventId: 'message-multiple-products',
+      senderId: 'customer-1',
+      status: 'ambiguous',
+      replyText:
+        'Merci d’indiquer un seul produit et sa quantité par message. Pour plusieurs produits, envoyez un message distinct pour chacun.',
+    });
+    expect(graph.sendMessengerReply).toHaveBeenCalledWith(
+      'customer-1',
+      'Nom ambigu',
     );
   });
 });

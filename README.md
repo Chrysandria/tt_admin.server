@@ -16,9 +16,10 @@ Renseignez au minimum `DATABASE_URL`, `JWT_SECRET` et `CSRF_SECRET` dans `.env`.
 Créez deux secrets distincts d’au moins 32 caractères, par exemple avec
 `openssl rand -hex 32`.
 
-La migration actuelle est une migration initiale unique destinée à une base
-vide. Vérifiez la base ciblée avant de la lancer : n’effacez pas l’historique
-de migrations et ne faites pas de reset sur une base contenant des données.
+La migration initiale est destinée à une base vide ; les migrations suivantes
+ajoutent les fonctionnalités du catalogue et de sécurité. Vérifiez la base
+ciblée avant de les lancer : n’effacez pas l’historique de migrations et ne
+faites pas de reset sur une base contenant des données.
 
 ```bash
 npx prisma migrate deploy
@@ -34,12 +35,30 @@ initial en développement, définissez `SEED_ADMIN_EMAIL` et
 npm run db:seed:admin
 ```
 
+## Sécurité du compte
+
+Les nouveaux comptes reçoivent par e-mail un mot de passe provisoire aléatoire
+de 8 caractères. Dans la rubrique **Sécurité** du frontend, un utilisateur peut
+demander un changement de mot de passe en saisissant son mot de passe actuel.
+Un code OTP à 6 chiffres est envoyé à l’adresse de son compte ; il expire après
+10 minutes et cinq tentatives incorrectes au maximum sont autorisées. Le
+changement n’est appliqué qu’après confirmation du code. Configurez les
+variables SMTP décrites dans `.env.example` pour permettre l’envoi des codes.
+
 ## Facebook / Meta
 
-La rubrique `/facebook` du frontend permet aux administrateurs de publier sur
-la Page et de configurer le message d’accueil. Les messages et commentaires
-peuvent être analysés par mots-clés, créer des commandes multi-produits et
-réserver le stock. Aucun paiement n’est effectué automatiquement.
+La rubrique `/facebook` du frontend permet aux administrateurs de configurer le
+message d’accueil. Les publications se font depuis `/produits`. Les messages et
+commentaires reconnus par mots-clés créent une commande pour un seul produit et
+réservent le stock. Si un message demande plusieurs produits, le client est
+invité à envoyer une demande distincte pour chaque produit. Aucun paiement n’est
+effectué automatiquement.
+
+Les commandes conservent le nom, le téléphone et l’adresse de livraison du
+client, ainsi que la date/heure à laquelle elles sont marquées comme livrées.
+Les coordonnées reçues via Facebook doivent être complétées manuellement : les
+webhooks de commentaires et Messenger ne fournissent pas automatiquement ces
+informations de livraison.
 
 Pour activer l’intégration :
 

@@ -64,57 +64,40 @@ describe('OrdersService', () => {
     expect(transaction.order.create).toHaveBeenCalled();
   });
 
-  it('creates one order with multiple products and reserves each quantity', async () => {
+  it('saves customer delivery details when creating an order', async () => {
     transaction.product.findFirst.mockResolvedValue({ id: 'product-1' });
     transaction.product.updateMany.mockResolvedValue({ count: 1 });
     transaction.order.create.mockResolvedValue({ id: 'order-1' });
 
     await service.create({
-      items: [
-        { product_id: 'product-1', quantity: 2 },
-        { product_id: 'product-2', quantity: 4 },
-      ],
+      product_id: 'product-1',
+      quantity: 1,
+      customer_name: '  Aina Rakoto ',
+      customer_phone: ' +261 34 00 ',
+      delivery_address: '  Analamahitsy ',
     });
 
-    expect(transaction.product.updateMany).toHaveBeenCalledTimes(2);
-    expect(transaction.product.updateMany).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        where: expect.objectContaining({
-          id: 'product-1',
-          available: { gte: 2 },
-        }),
-        data: { available: { decrement: 2 } },
-      }),
-    );
-    expect(transaction.product.updateMany).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        where: expect.objectContaining({
-          id: 'product-2',
-          available: { gte: 4 },
-        }),
-        data: { available: { decrement: 4 } },
-      }),
-    );
     expect(transaction.order.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          items: {
-            create: expect.arrayContaining([
-              expect.objectContaining({
-                productId: 'product-1',
-                quantity: 2,
-              }),
-              expect.objectContaining({
-                productId: 'product-2',
-                quantity: 4,
-              }),
-            ]),
-          },
+          customerName: 'Aina Rakoto',
+          customerPhone: '+261 34 00',
+          deliveryAddress: 'Analamahitsy',
         }),
       }),
     );
+  });
+
+  it('rejects orders that contain more than one product', async () => {
+    await expect(
+      service.create({
+        items: [
+          { product_id: 'product-1', quantity: 2 },
+          { product_id: 'product-2', quantity: 4 },
+        ],
+      }),
+    ).rejects.toThrow('An order can contain only one product');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('creates an idempotent Facebook order and records its private reply', async () => {
@@ -124,16 +107,7 @@ describe('OrdersService', () => {
     transaction.product.updateMany.mockResolvedValue({ count: 1 });
     transaction.order.create.mockResolvedValue({
       id: 'order-facebook',
-      items: [
-        {
-          quantity: 2,
-          product: { nom: 'Robe bleue', available: 3 },
-        },
-        {
-          quantity: 1,
-          product: { nom: 'Sac rouge', available: 4 },
-        },
-      ],
+      items: [{ quantity: 2, product: { nom: 'Robe bleue', available: 3 } }],
     });
     transaction.facebookWebhookEvent.update.mockResolvedValue({
       status: 'reserved',
@@ -146,10 +120,7 @@ describe('OrdersService', () => {
       channel: 'messenger',
       eventId: 'message-1',
       senderId: 'sender-1',
-      items: [
-        { productId: 'product-1', quantity: 2 },
-        { productId: 'product-2', quantity: 1 },
-      ],
+      items: [{ productId: 'product-1', quantity: 2 }],
     });
 
     expect(result).toEqual({
@@ -176,10 +147,9 @@ describe('OrdersService', () => {
           facebookEventId: 'messenger:message-1',
           status: 'reserved',
           items: {
-            create: expect.arrayContaining([
+            create: [
               expect.objectContaining({ productId: 'product-1', quantity: 2 }),
-              expect.objectContaining({ productId: 'product-2', quantity: 1 }),
-            ]),
+            ],
           },
         }),
       }),
@@ -210,43 +180,19 @@ describe('OrdersService', () => {
     expect(transaction.order.create).not.toHaveBeenCalled();
   });
 
-  it('restores earlier stock deductions when a multi-product request is incomplete', async () => {
-    transaction.facebookWebhookEvent.create.mockResolvedValue({
-      status: 'processing',
-    });
-    transaction.product.updateMany
-      .mockResolvedValueOnce({ count: 1 })
-      .mockResolvedValueOnce({ count: 0 })
-      .mockResolvedValueOnce({ count: 1 });
-    transaction.product.findFirst.mockResolvedValue({
-      id: 'product-2',
-      nom: 'Sac rouge',
-    });
-    transaction.facebookWebhookEvent.update.mockResolvedValue({
-      status: 'out_of_stock',
-      orderId: null,
-      replyText: 'Aucune ligne réservée',
-      replySent: false,
-    });
-
-    await service.createFacebookReservation({
-      channel: 'messenger',
-      eventId: 'message-no-stock',
-      senderId: 'sender-1',
-      items: [
-        { productId: 'product-1', quantity: 2 },
-        { productId: 'product-2', quantity: 1 },
-      ],
-    });
-
-    expect(transaction.product.updateMany).toHaveBeenNthCalledWith(
-      3,
-      expect.objectContaining({
-        where: { id: 'product-1' },
-        data: { available: { increment: 2 } },
+  it('rejects Facebook reservations with multiple products', async () => {
+    await expect(
+      service.createFacebookReservation({
+        channel: 'messenger',
+        eventId: 'message-multiple-products',
+        senderId: 'sender-1',
+        items: [
+          { productId: 'product-1', quantity: 2 },
+          { productId: 'product-2', quantity: 1 },
+        ],
       }),
-    );
-    expect(transaction.order.create).not.toHaveBeenCalled();
+    ).rejects.toThrow('A Facebook order must contain exactly one product');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('returns an existing result when Meta redelivers the same event', async () => {
@@ -289,7 +235,7 @@ describe('OrdersService', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('adjusts stock when products and quantities are changed on an order', async () => {
+  it('adjusts stock when the product quantity is changed on an order', async () => {
     transaction.order.findFirst.mockResolvedValue({
       id: 'order-1',
       status: 'reserved',
@@ -300,26 +246,100 @@ describe('OrdersService', () => {
     transaction.order.update.mockResolvedValue({ id: 'order-1' });
 
     await service.update('order-1', {
-      items: [
-        { product_id: 'product-1', quantity: 1 },
-        { product_id: 'product-2', quantity: 3 },
-      ],
+      product_id: 'product-1',
+      quantity: 1,
     });
 
-    expect(transaction.product.updateMany).toHaveBeenCalledTimes(2);
+    expect(transaction.product.updateMany).toHaveBeenCalledTimes(1);
     expect(transaction.product.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ id: 'product-1' }),
         data: { available: { increment: 1 } },
       }),
     );
+  });
+
+  it('records a delivery timestamp and updates customer details', async () => {
+    transaction.order.findFirst.mockResolvedValue({
+      id: 'order-1',
+      status: 'payed',
+      deliveredAt: null,
+      items: [{ productId: 'product-1', quantity: 1 }],
+    });
+    transaction.order.update.mockImplementation(({ data }) =>
+      Promise.resolve({ id: 'order-1', ...data }),
+    );
+
+    await service.update('order-1', {
+      delivered: true,
+      customer_name: 'Aina Rakoto',
+      customer_phone: '+261 34 00',
+      delivery_address: 'Analamahitsy',
+    });
+
+    expect(transaction.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          deliveredAt: expect.any(Date),
+          customerName: 'Aina Rakoto',
+          customerPhone: '+261 34 00',
+          deliveryAddress: 'Analamahitsy',
+        }),
+      }),
+    );
+  });
+
+  it('does not mark a canceled order as delivered', async () => {
+    transaction.order.findFirst.mockResolvedValue({
+      id: 'order-1',
+      status: 'canceled',
+      deliveredAt: null,
+      items: [{ productId: 'product-1', quantity: 1 }],
+    });
+
+    await expect(
+      service.update('order-1', { delivered: true }),
+    ).rejects.toThrow('A canceled order cannot be marked delivered');
+    expect(transaction.order.update).not.toHaveBeenCalled();
+  });
+
+  it('reduces a legacy multi-product order to one product when it is edited', async () => {
+    transaction.order.findFirst.mockResolvedValue({
+      id: 'legacy-order',
+      status: 'reserved',
+      items: [
+        { productId: 'product-1', quantity: 2 },
+        { productId: 'product-2', quantity: 3 },
+      ],
+    });
+    transaction.product.findFirst.mockResolvedValue({ id: 'product-1' });
+    transaction.product.updateMany.mockResolvedValue({ count: 1 });
+    transaction.order.update.mockResolvedValue({ id: 'legacy-order' });
+
+    await service.update('legacy-order', {
+      product_id: 'product-1',
+      quantity: 2,
+    });
+
     expect(transaction.product.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
-          id: 'product-2',
-          available: { gte: 3 },
-        }),
-        data: { available: { decrement: 3 } },
+        where: { id: 'product-2' },
+        data: { available: { increment: 3 } },
+      }),
+    );
+    expect(transaction.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          items: {
+            deleteMany: {},
+            create: [
+              expect.objectContaining({
+                productId: 'product-1',
+                quantity: 2,
+              }),
+            ],
+          },
+        },
       }),
     );
   });

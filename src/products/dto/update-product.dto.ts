@@ -1,8 +1,12 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { CreateProductDto } from './create-product.dto.js';
+import {
+  CreateProductColorDto,
+  CreateProductDto,
+} from './create-product.dto.js';
 
 export class UpdateProductDto extends PartialType(CreateProductDto) {
   available?: number;
   imageUrl?: string | null;
   keywords?: string[];
+  colors?: CreateProductColorDto[];
 }

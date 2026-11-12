@@ -3,12 +3,23 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { createHmac } from 'node:crypto';
 import type { Express } from 'express';
 
 interface FacebookGraphConfig {
   pageId: string;
   pageAccessToken: string;
+  appSecret: string;
   version: string;
+}
+
+export type FacebookImage = Pick<
+  Express.Multer.File,
+  'buffer' | 'mimetype' | 'originalname' | 'size'
+>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 @Injectable()
@@ -35,43 +46,84 @@ export class FacebookGraphService {
     });
   }
 
+  async deletePagePost(postId: string) {
+    if (!postId.trim()) {
+      throw new BadRequestException('Facebook post ID is required');
+    }
+
+    const config = this.getConfig();
+    const params = new URLSearchParams({
+      access_token: config.pageAccessToken,
+      appsecret_proof: this.getAppsecretProof(config),
+    });
+    const response = await this.request(
+      `${encodeURIComponent(postId)}?${params.toString()}`,
+      config,
+      { method: 'DELETE' },
+    );
+    if (!isRecord(response) || response.success !== true) {
+      throw new ServiceUnavailableException(
+        'Facebook Graph API did not confirm the post deletion',
+      );
+    }
+  }
+
   getMessengerLink() {
     const config = this.getConfig();
     return `https://m.me/${encodeURIComponent(config.pageId)}`;
   }
 
-  async publishPagePost(message: string, image?: Express.Multer.File) {
+  async publishPagePost(
+    message: string,
+    image?: FacebookImage,
+  ): Promise<string> {
     const config = this.getConfig();
+    let response: unknown;
     if (image) {
       const contentType = this.getImageContentType(image.buffer);
       const body = new FormData();
       body.set('message', message);
       body.set('published', 'true');
       body.set('access_token', config.pageAccessToken);
+      body.set('appsecret_proof', this.getAppsecretProof(config));
       body.set(
         'source',
         new Blob([new Uint8Array(image.buffer)], { type: contentType }),
         `publication.${contentType.split('/')[1]}`,
       );
-      return this.request(
+      response = await this.request(
         `${encodeURIComponent(config.pageId)}/photos`,
         config,
         { method: 'POST', body },
       );
+    } else {
+      response = await this.post(
+        `${encodeURIComponent(config.pageId)}/feed`,
+        config,
+        { message },
+      );
     }
 
-    return this.post(`${encodeURIComponent(config.pageId)}/feed`, config, {
-      message,
-    });
+    const postId = isRecord(response)
+      ? (response.post_id ?? response.id)
+      : undefined;
+    if (typeof postId !== 'string' || !postId) {
+      throw new ServiceUnavailableException(
+        'Facebook Graph API did not return a Page post ID',
+      );
+    }
+    return postId;
   }
 
   private getConfig(): FacebookGraphConfig {
     const pageId = process.env.FACEBOOK_PAGE_ID?.trim();
     const pageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN?.trim();
+    const appSecret = process.env.FACEBOOK_APP_SECRET?.trim();
     const version = process.env.FACEBOOK_GRAPH_API_VERSION?.trim();
     if (
       !pageId ||
       !pageAccessToken ||
+      !appSecret ||
       !version ||
       !/^v\d+\.\d+$/.test(version)
     ) {
@@ -79,7 +131,13 @@ export class FacebookGraphService {
         'Facebook Page integration is not fully configured',
       );
     }
-    return { pageId, pageAccessToken, version };
+    return { pageId, pageAccessToken, appSecret, version };
+  }
+
+  private getAppsecretProof(config: FacebookGraphConfig) {
+    return createHmac('sha256', config.appSecret)
+      .update(config.pageAccessToken)
+      .digest('hex');
   }
 
   private async post(
@@ -90,6 +148,7 @@ export class FacebookGraphService {
     const body = new URLSearchParams({
       ...fields,
       access_token: config.pageAccessToken,
+      appsecret_proof: this.getAppsecretProof(config),
     });
     return this.request(edge, config, {
       method: 'POST',

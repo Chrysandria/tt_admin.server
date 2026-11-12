@@ -19,37 +19,70 @@ enum UserType {
 }
 
 model User {
-  id        String    @id
-  email     String    @unique
-  nom       String
-  profil    String    @default("user")
-  type      UserType  @default(user)
-  password  String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  id                      String                   @id
+  email                   String                   @unique
+  nom                     String
+  profil                  String                   @default("user")
+  type                    UserType                 @default(user)
+  password                String
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  deletedAt               DateTime?
+  passwordChangeChallenge PasswordChangeChallenge?
+}
+
+model PasswordChangeChallenge {
+  userId              String   @id
+  otpHash             String
+  currentPasswordHash String
+  newPasswordHash     String
+  attempts            Int      @default(0)
+  expiresAt           DateTime
+  createdAt           DateTime @default(now())
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Product {
-  id           String      @id
-  session_id   String?
-  code_article String?
-  nom          String
-  keywords     String[]    @default([])
-  prix         Decimal     @db.Decimal(65, 30)
-  imageUrl     String?     @map("image_url")
-  initial      Int
-  available    Int
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  deletedAt    DateTime?
-  items        OrderItem[]
+  id                    String                 @id
+  session_id            String?
+  code_article          String?
+  nom                   String
+  description           String                 @default("")
+  keywords              String[]               @default([])
+  prix                  Decimal                @db.Decimal(65, 30)
+  imageUrl              String?                @map("image_url")
+  initial               Int
+  available             Int
+  facebookPostId        String?                @map("facebook_post_id")
+  facebookPublishedAt   DateTime?              @map("facebook_published_at")
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  deletedAt             DateTime?
+  items                 OrderItem[]
+  colors                ProductColor[]
+  pendingFacebookOrders FacebookPendingOrder[]
+}
+
+model ProductColor {
+  id        String      @id
+  productId String
+  name      String
+  initial   Int
+  available Int
+  product   Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  items     OrderItem[]
+
+  @@unique([productId, name])
 }
 
 model Order {
   id              String      @id
   session_id      String?
   facebookUserId  String?     @map("facebook_user_id")
+  customerName    String?     @map("customer_name")
+  deliveryAddress String?     @map("delivery_address")
+  customerPhone   String?     @map("customer_phone")
+  deliveredAt     DateTime?   @map("delivered_at")
   legacyProductId String?     @map("produit_id")
   legacyQuantity  Int?        @map("quantity")
   status          Status      @default(reserved)
@@ -62,12 +95,14 @@ model Order {
 }
 
 model OrderItem {
-  id        String  @id
-  orderId   String
-  productId String
-  quantity  Int
-  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  id             String        @id
+  orderId        String
+  productId      String
+  productColorId String?
+  quantity       Int
+  order          Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productColor   ProductColor? @relation(fields: [productColorId], references: [id], onDelete: Restrict)
 
   @@unique([orderId, productId])
 }
@@ -85,6 +120,16 @@ model FacebookWebhookEvent {
   updatedAt DateTime @updatedAt
 
   @@unique([channel, eventId])
+}
+
+model FacebookPendingOrder {
+  id        String   @id
+  senderId  String   @unique
+  productId String
+  quantity  Int
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 }
 
 model FacebookPageSettings {

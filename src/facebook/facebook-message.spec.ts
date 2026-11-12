@@ -27,13 +27,16 @@ describe('matchFacebookProductMessage', () => {
 
   it('parses quantities before or after a keyword phrase', () => {
     expect(
-      matchFacebookProductMessage('Je veux 2 robe bleue et sac rouge x3', products),
+      matchFacebookProductMessage('Je veux 2 robe bleue', products),
     ).toEqual({
       kind: 'match',
-      items: [
-        { product: products[0], quantity: 2 },
-        { product: products[1], quantity: 3 },
-      ],
+      items: [{ product: products[0], quantity: 2 }],
+    });
+    expect(
+      matchFacebookProductMessage('Je veux sac rouge x3', products),
+    ).toEqual({
+      kind: 'match',
+      items: [{ product: products[1], quantity: 3 }],
     });
   });
 
@@ -49,19 +52,13 @@ describe('matchFacebookProductMessage', () => {
     });
   });
 
-  it('identifies multiple products from one message', () => {
+  it('requires separate messages when more than one product is requested', () => {
     expect(
       matchFacebookProductMessage(
         'Bonjour, je prends sac à main 1 et robe sombre 2',
         products,
       ),
-    ).toEqual({
-      kind: 'match',
-      items: [
-        { product: products[1], quantity: 1 },
-        { product: products[2], quantity: 2 },
-      ],
-    });
+    ).toEqual({ kind: 'ambiguous' });
   });
 
   it('rejects invalid quantities', () => {

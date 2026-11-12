@@ -1,7 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
+import type { FacebookImage } from '../facebook/facebook-graph.service.js';
 
 const UPLOAD_DIRECTORY = resolve(process.cwd(), 'uploads', 'products');
 const PUBLIC_IMAGE_PREFIX = '/uploads/products/';
@@ -49,6 +50,42 @@ export async function saveProductImage(
     flag: 'wx',
   });
   return `${PUBLIC_IMAGE_PREFIX}${filename}`;
+}
+
+export async function readProductImageForFacebook(
+  imageUrl: string | null,
+): Promise<FacebookImage | undefined> {
+  if (!imageUrl) return undefined;
+  if (!imageUrl.startsWith(PUBLIC_IMAGE_PREFIX)) {
+    throw new BadRequestException(
+      'The product image cannot be read for Facebook publication',
+    );
+  }
+
+  const filename = imageUrl.slice(PUBLIC_IMAGE_PREFIX.length);
+  if (!filename || filename !== basename(filename)) {
+    throw new BadRequestException('The product image path is invalid');
+  }
+  const extension = filename.split('.').at(-1)?.toLowerCase();
+  const mimetype =
+    extension === 'jpg' || extension === 'jpeg'
+      ? 'image/jpeg'
+      : extension === 'png'
+        ? 'image/png'
+        : undefined;
+  if (!mimetype) {
+    throw new BadRequestException(
+      'Facebook product images must be in JPEG or PNG format',
+    );
+  }
+
+  const buffer = await readFile(resolve(UPLOAD_DIRECTORY, filename));
+  return {
+    buffer,
+    mimetype,
+    originalname: filename,
+    size: buffer.length,
+  };
 }
 
 export async function removeProductImage(imageUrl: string | null | undefined) {

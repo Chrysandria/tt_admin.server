@@ -6,6 +6,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   Patch,
   Query,
@@ -28,6 +29,7 @@ import { isValidMetaSignature } from './facebook-signature.js';
 
 interface PagePostFields {
   message?: string;
+  productId?: string;
   includeMessengerLink?: string | boolean;
 }
 
@@ -81,6 +83,13 @@ export class FacebookController {
   }
 
   @UseGuards(AdminGuard)
+  @Post('products/:productId/publish')
+  async publishProduct(@Param('productId') productId: string) {
+    const postId = await this.facebookService.publishProduct(productId);
+    return { published: true, postId };
+  }
+
+  @UseGuards(AdminGuard)
   @Post('posts')
   @UseInterceptors(
     FileInterceptor('image', {
@@ -95,12 +104,13 @@ export class FacebookController {
     const includeMessengerLink = this.parseMessengerLinkOption(
       fields.includeMessengerLink,
     );
-    await this.facebookService.publishPagePost(
+    const postId = await this.facebookService.publishPagePost(
       fields.message,
       image,
       includeMessengerLink,
+      fields.productId,
     );
-    return { published: true };
+    return { published: true, postId };
   }
 
   private parseMessengerLinkOption(value: string | boolean | undefined) {

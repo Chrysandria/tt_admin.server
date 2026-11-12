@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { timingSafeEqual } from 'node:crypto';
@@ -11,7 +12,11 @@ import {
   FacebookCatalogProduct,
   matchFacebookProductMessage,
 } from './facebook-message.js';
-import { FacebookGraphService } from './facebook-graph.service.js';
+import {
+  FacebookGraphService,
+  type FacebookImage,
+} from './facebook-graph.service.js';
+import { readProductImageForFacebook } from '../products/product-images.js';
 
 type FacebookChannel = 'comment' | 'messenger';
 
@@ -85,8 +90,9 @@ export class FacebookService {
 
   async publishPagePost(
     message: unknown,
-    image?: Express.Multer.File,
+    image?: FacebookImage,
     includeMessengerLink = false,
+    productId?: string,
   ) {
     if (typeof message !== 'string' || !message.trim()) {
       throw new BadRequestException('Publication text is required');
@@ -106,8 +112,75 @@ export class FacebookService {
         'Publication text cannot exceed 5000 characters',
       );
     }
+    if (productId !== undefined) {
+      if (typeof productId !== 'string' || !productId.trim()) {
+        throw new BadRequestException('productId must be a non-empty string');
+      }
+      const product = await this.prisma.product.findFirst({
+        where: { id: productId, deletedAt: null },
+        select: { id: true, facebookPostId: true },
+      });
+      if (!product) {
+        throw new BadRequestException('The product to publish does not exist');
+      }
+      if (product.facebookPostId) {
+        throw new BadRequestException('The product has already been published');
+      }
+    }
     this.graph.ensureConfigured();
-    return this.graph.publishPagePost(postMessage, image);
+    const postId = await this.graph.publishPagePost(postMessage, image);
+    if (productId) {
+      const result = await this.prisma.product.updateMany({
+        where: { id: productId, deletedAt: null, facebookPostId: null },
+        data: { facebookPostId: postId, facebookPublishedAt: new Date() },
+      });
+      if (result.count === 0) {
+        throw new ServiceUnavailableException(
+          'Facebook published the post, but the product record could not be updated',
+        );
+      }
+    }
+    return postId;
+  }
+
+  async publishProduct(productId: unknown) {
+    if (typeof productId !== 'string' || !productId.trim()) {
+      throw new BadRequestException('productId must be a non-empty string');
+    }
+
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, deletedAt: null },
+      select: {
+        id: true,
+        nom: true,
+        description: true,
+        prix: true,
+        imageUrl: true,
+        facebookPostId: true,
+      },
+    });
+    if (!product) {
+      throw new NotFoundException('The product to publish does not exist');
+    }
+    if (product.facebookPostId) {
+      throw new BadRequestException('The product has already been published');
+    }
+    if (typeof product.nom !== 'string' || !product.nom.trim()) {
+      throw new BadRequestException('The product name cannot be published');
+    }
+
+    const description =
+      typeof product.description === 'string' ? product.description.trim() : '';
+    const price = product.prix.toString().trim();
+    const message = [
+      `Nouveau produit : ${product.nom.trim()}`,
+      description,
+      price ? `Prix : ${price}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    const image = await readProductImageForFacebook(product.imageUrl);
+    return this.publishPagePost(message, image, true, product.id);
   }
 
   verifyWebhook(mode: string | undefined, token: string | undefined, challenge: string | undefined) {
@@ -257,7 +330,7 @@ export class FacebookService {
     } else {
       const replyText =
         match.kind === 'ambiguous'
-          ? 'Ce nom correspond à plusieurs produits. Merci de contacter la boutique en message privé.'
+          ? 'Merci d’indiquer un seul produit et sa quantité par message. Pour plusieurs produits, envoyez un message distinct pour chacun.'
           : 'La quantité doit être un nombre entier supérieur à zéro.';
       result = await this.ordersService.recordFacebookOutcome({
         channel: event.channel,

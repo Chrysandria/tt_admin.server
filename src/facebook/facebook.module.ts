@@ -10,5 +10,6 @@ import { AdminGuard } from '../users/admin.guard.js';
   imports: [OrdersModule, PrismaModule],
   controllers: [FacebookController],
   providers: [AdminGuard, FacebookGraphService, FacebookService],
+  exports: [FacebookGraphService],
 })
 export class FacebookModule {}

@@ -143,6 +143,9 @@ export function matchFacebookProductMessage(
     nextAvailableToken = match.end;
   }
   if (selected.length === 0) return { kind: 'none' };
+  if (new Set(selected.map((match) => match.product.id)).size > 1) {
+    return { kind: 'ambiguous' };
+  }
 
   const quantities = new Map<string, ParsedFacebookOrderItem>();
   for (const match of selected) {

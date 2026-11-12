@@ -6,6 +6,7 @@ import {
   InternalServerErrorException,
   HttpStatus,
   Post,
+  Patch,
   Req,
   Res,
 } from '@nestjs/common';
@@ -61,5 +62,27 @@ export class AuthController {
   @Get('me')
   me(@Req() request: Request & { user: AuthenticatedUser }) {
     return request.user;
+  }
+
+  @Patch('password')
+  async requestPasswordChange(
+    @Body() body: { currentPassword?: unknown; newPassword?: unknown },
+    @Req() request: Request & { user: AuthenticatedUser },
+  ) {
+    await this.authService.requestPasswordChange(
+      request.user.id,
+      body?.currentPassword,
+      body?.newPassword,
+    );
+    return { otpSent: true };
+  }
+
+  @Post('password/confirm-otp')
+  async confirmPasswordChange(
+    @Body() body: { otp?: unknown },
+    @Req() request: Request & { user: AuthenticatedUser },
+  ) {
+    await this.authService.confirmPasswordChange(request.user.id, body?.otp);
+    return { success: true };
   }
 }

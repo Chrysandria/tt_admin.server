@@ -5,7 +5,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { randomBytes, scrypt } from 'node:crypto';
+import { randomBytes, randomInt, scrypt } from 'node:crypto';
 import { Prisma } from '../generated/prisma/client.js';
 import type { UserType } from '../generated/prisma/client.js';
 import { MailService } from '../mail/mail.service.js';
@@ -62,7 +62,11 @@ export class UsersService {
     const userType = parseUserType(createUserDto.type);
     const email = createUserDto.email.trim().toLowerCase();
     const name = this.getNameFromEmail(email);
-    const temporaryPassword = randomBytes(24).toString('base64url');
+    const passwordCharacters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const temporaryPassword = Array.from(
+      { length: 8 },
+      () => passwordCharacters[randomInt(passwordCharacters.length)],
+    ).join('');
     let user: User;
     try {
       user = await this.prisma.user.create({
